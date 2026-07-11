@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Радиус фрезы — измерение по фото</title>
+<style>
+  :root {
+    --bg: #17191b;
+    --bg-panel: #1f2225;
+    --steel: #3a4048;
+    --steel-light: #565f68;
+    --text: #e9e6df;
+    --text-dim: #8b9096;
+    --accent: #ff8a1e;
+    --accent-dim: #7a4415;
+    --ok: #4fbf7a;
+    --warn: #e0b84a;
+    --err: #e0604a;
+    --mono: 'JetBrains Mono', 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: var(--sans);
+    overscroll-behavior: none;
+  }
+  #app {
+    display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    padding: 10px 16px;
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 1px solid var(--steel);
+    background: var(--bg-panel);
+  }
+  header .title { font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+  header .title b { color: var(--accent); font-weight: 700; }
+  header .step { font-family: var(--mono); font-size: 12px; color: var(--steel-light); }
+
+  /* ---------- camera stage ---------- */
+  #stage {
+    position: relative; flex: 1; overflow: hidden;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+  }
+  video, #photoCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: contain;
+  }
+  #overlay {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  #clickCatcher {
+    position: absolute; inset: 0; z-index: 5;
+  }
+
+  .corner {
+    position: absolute; width: 28px; height: 28px;
+    border: 3px solid var(--accent-dim);
+    opacity: 0.55;
+  }
+  .corner.tl { top: 14px; left: 14px; border-right: none; border-bottom: none; }
+  .corner.tr { top: 14px; right: 14px; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: 14px; left: 14px; border-right: none; border-top: none; }
+  .corner.br { bottom: 14px; right: 14px; border-left: none; border-top: none; }
+
+  #markerBadge {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    padding: 5px 12px; border-radius: 3px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+    background: rgba(0,0,0,0.55); border: 1px solid var(--steel);
+    color: var(--text-dim);
+    transition: color 0.15s, border-color 0.15s;
+    z-index: 6;
+  }
+  #markerBadge.found { color: var(--ok); border-color: var(--ok); }
+
+  #hint {
+    position: absolute; bottom: 12px; left: 12px; right: 12px;
+    text-align: center; font-size: 13px; color: var(--text-dim);
+    padding: 8px 10px; background: rgba(0,0,0,0.5); border-radius: 4px;
+    z-index: 6; pointer-events: none;
+  }
+
+  /* ---------- control panel ---------- */
+  #panel {
+    background: var(--bg-panel);
+    border-top: 1px solid var(--steel);
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  }
+
+  .field { margin-bottom: 12px; }
+  .field label {
+    display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 6px;
+  }
+  .field input[type=number] {
+    width: 100%; padding: 10px 12px;
+    background: var(--bg); border: 1px solid var(--steel);
+    border-radius: 4px; color: var(--text);
+    font-family: var(--mono); font-size: 16px;
+  }
+  .field input[type=number]:focus { outline: none; border-color: var(--accent); }
+
+  .btn {
+    display: block; width: 100%; padding: 14px;
+    border-radius: 4px; border: none;
+    font-family: var(--sans); font-size: 15px; font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+  }
+  .btn-primary { background: var(--accent); color: #201200; }
+  .btn-primary:disabled { background: var(--steel); color: var(--text-dim); }
+  .btn-secondary {
+    background: transparent; border: 1px solid var(--steel-light);
+    color: var(--text); margin-top: 8px;
+  }
+  .row-btns { display: flex; gap: 8px; }
+  .row-btns .btn { flex: 1; }
+
+  /* ---------- readout (signature element: digital caliper LCD) ---------- */
+  #readout {
+    background: #10231a;
+    border: 1px solid #24493a;
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    display: none;
+  }
+  #readout.show { display: block; }
+  .readout-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 4px 0;
+  }
+  .readout-row .lbl {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #6fae8c;
+  }
+  .readout-row .val {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    color: var(--ok);
+  }
+  .readout-row.primary .val { font-size: 32px; font-weight: 700; }
+  .readout-row.secondary .val { font-size: 16px; color: #a8d6bd; }
+  .readout-divider { border-top: 1px dashed #24493a; margin: 8px 0; }
+  #readoutWarning {
+    display: none; margin-top: 10px; padding: 8px 10px;
+    background: rgba(224,184,74,0.1); border: 1px solid var(--warn);
+    border-radius: 4px; font-size: 12.5px; color: var(--warn);
+  }
+  #readoutWarning.show { display: block; }
+
+  #statusLine {
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+    margin-bottom: 10px; min-height: 16px;
+  }
+  #statusLine.err { color: var(--err); }
+
+  .marker-dot {
+    position: absolute; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #201200;
+    transform: translate(-50%, -50%);
+    z-index: 6;
+  }
+  .marker-dot::after {
+    content: attr(data-n);
+    position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+  }
+  #measureLine {
+    position: absolute; z-index: 5; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="title"><b>⌀</b> Mill Radius Estimator</div>
+    <div class="step" id="stepLabel">1 / 3 · съёмка</div>
+  </header>
+
+  <div id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="photoCanvas" style="display:none;"></canvas>
+    <svg id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+
+    <div id="markerBadge">метка: поиск…</div>
+    <div id="hint">Наведите камеру так, чтобы метка и фреза были в кадре</div>
+
+    <div id="clickCatcher"></div>
+  </div>
+
+  <div id="panel">
+    <div id="statusLine"></div>
+
+    <div id="readout">
+      <div class="readout-row primary">
+        <span class="lbl">Диаметр</span>
+        <span class="val"><span id="valDiameter">—</span> мм</span>
+      </div>
+      <div class="readout-row secondary">
+        <span class="lbl">Радиус</span>
+        <span class="val"><span id="valRadius">—</span> мм</span>
+      </div>
+      <div class="readout-divider"></div>
+      <div class="readout-row secondary">
+        <span class="lbl">± погрешность</span>
+        <span class="val">±<span id="valError">—</span> мм</span>
+      </div>
+      <div id="readoutWarning"></div>
+    </div>
+
+    <div class="field" id="markerSizeField">
+      <label for="markerSize">Размер метки (мм)</label>
+      <input type="number" id="markerSize" value="40" step="1" min="5">
+    </div>
+
+    <div id="controlsCapture">
+      <button class="btn btn-primary" id="btnCapture">Снять кадр</button>
+    </div>
+
+    <div id="controlsMeasure" style="display:none;">
+      <div class="field" style="margin-bottom:8px;">
+        <label id="clickInstruction">Отметьте точку 1: край режущей кромки</label>
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-secondary" id="btnRetake">Переснять</button>
+        <button class="btn btn-primary" id="btnMeasure" disabled>Измерить</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin.includes('file://')
+  ? 'http://localhost:8000'
+  : (window.MILL_API_BASE || 'http://localhost:8000');
+
+const video = document.getElementById('video');
+const photoCanvas = document.getElementById('photoCanvas');
+const overlay = document.getElementById('overlay');
+const clickCatcher = document.getElementById('clickCatcher');
+const stage = document.getElementById('stage');
+const markerBadge = document.getElementById('markerBadge');
+const statusLine = document.getElementById('statusLine');
+const stepLabel = document.getElementById('stepLabel');
+const readout = document.getElementById('readout');
+
+let stream = null;
+let mode = 'camera'; // camera | measure
+let points = []; // clicked points in *displayed image* coords
+let displayedImageRect = null; // {x,y,w,h} of the drawn photo within stage
+let capturedImgNaturalSize = null;
+let markerDetectInterval = null;
+
+function setStatus(msg, isErr) {
+  statusLine.textContent = msg || '';
+  statusLine.className = isErr ? 'err' : '';
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    startMarkerPolling();
+  } catch (e) {
+    setStatus('Нет доступа к камере: ' + e.message, true);
+  }
+}
+
+function startMarkerPolling() {
+  if (markerDetectInterval) clearInterval(markerDetectInterval);
+  markerDetectInterval = setInterval(async () => {
+    if (mode !== 'camera' || video.readyState < 2) return;
+    const canvas = document.createElement('canvas');
+    const scale = 640 / video.videoWidth;
+    canvas.width = 640;
+    canvas.height = video.videoHeight * scale;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(async (blob) => {
+      try {
+        const fd = new FormData();
+        fd.append('image', blob, 'frame.jpg');
+        const res = await fetch(`${API_BASE}/api/detect-marker`, { method: 'POST', body: fd });
+        if (!res.ok) return;
+        const data = await res.json();
+        markerBadge.textContent = data.found ? 'метка: найдена ✓' : 'метка: поиск…';
+        markerBadge.classList.toggle('found', data.found);
+      } catch (e) { /* silent, network hiccup during preview is fine */ }
+    }, 'image/jpeg', 0.7);
+  }, 900);
+}
+
+document.getElementById('btnCapture').addEventListener('click', () => {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  photoCanvas.width = vw;
+  photoCanvas.height = vh;
+  photoCanvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+  capturedImgNaturalSize = { w: vw, h: vh };
+
+  video.style.display = 'none';
+  photoCanvas.style.display = 'block';
+  mode = 'measure';
+  points = [];
+  updateClickInstruction();
+  document.getElementById('controlsCapture').style.display = 'none';
+  document.getElementById('controlsMeasure').style.display = 'block';
+  stepLabel.textContent = '2 / 3 · разметка';
+  setStatus('');
+  redrawOverlay();
+});
+
+document.getElementById('btnRetake').addEventListener('click', () => {
+  mode = 'camera';
+  points = [];
+  video.style.display = 'block';
+  photoCanvas.style.display = 'none';
+  document.getElementById('controlsCapture').style.display = 'block';
+  document.getElementById('controlsMeasure').style.display = 'none';
+  readout.classList.remove('show');
+  stepLabel.textContent = '1 / 3 · съёмка';
+  clearOverlay();
+});
+
+function updateClickInstruction() {
+  const el = document.getElementById('clickInstruction');
+  if (points.length === 0) el.textContent = 'Отметьте точку 1: край режущей кромки';
+  else if (points.length === 1) el.textContent = 'Отметьте точку 2: противоположный край (диаметр)';
+  else el.textContent = 'Точки отмечены. Можно измерить или сбросить, нажав ещё раз';
+  document.getElementById('btnMeasure').disabled = points.length !== 2;
+}
+
+clickCatcher.addEventListener('click', (e) => {
+  if (mode !== 'measure') return;
+  const rect = stage.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  if (points.length >= 2) points = [];
+  points.push({ x, y });
+  updateClickInstruction();
+  redrawOverlay();
+});
+
+function getDisplayedImageRect() {
+  // photoCanvas uses object-fit: contain within #stage
+  const stageRect = stage.getBoundingClientRect();
+  const iw = capturedImgNaturalSize.w, ih = capturedImgNaturalSize.h;
+  const sw = stageRect.width, sh = stageRect.height;
+  const scale = Math.min(sw / iw, sh / ih);
+  const dw = iw * scale, dh = ih * scale;
+  const dx = (sw - dw) / 2, dy = (sh - dh) / 2;
+  return { x: dx, y: dy, w: dw, h: dh, scale };
+}
+
+function clearOverlay() { overlay.innerHTML = ''; }
+
+function redrawOverlay() {
+  clearOverlay();
+  if (mode !== 'measure') return;
+  const stageRect = stage.getBoundingClientRect();
+  overlay.setAttribute('viewBox', `0 0 ${stageRect.width} ${stageRect.height}`);
+
+  points.forEach((p, i) => {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', 8);
+    c.setAttribute('fill', '#ff8a1e'); c.setAttribute('stroke', '#201200'); c.setAttribute('stroke-width', 2);
+    overlay.appendChild(c);
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', p.x); t.setAttribute('y', p.y - 14);
+    t.setAttribute('fill', '#ff8a1e'); t.setAttribute('font-size', '13'); t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('font-family', 'monospace');
+    t.textContent = i + 1;
+    overlay.appendChild(t);
+  });
+
+  if (points.length === 2) {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', points[0].x); l.setAttribute('y1', points[0].y);
+    l.setAttribute('x2', points[1].x); l.setAttribute('y2', points[1].y);
+    l.setAttribute('stroke', '#ff8a1e'); l.setAttribute('stroke-width', 2); l.setAttribute('stroke-dasharray', '5,4');
+    overlay.appendChild(l);
+  }
+}
+
+document.getElementById('btnMeasure').addEventListener('click', async () => {
+  if (points.length !== 2) return;
+  const rectInfo = getDisplayedImageRect();
+
+  // Convert displayed (CSS) coords -> natural image pixel coords
+  const toNatural = (p) => [
+    (p.x - rectInfo.x) / rectInfo.scale,
+    (p.y - rectInfo.y) / rectInfo.scale
+  ];
+  const p1 = toNatural(points[0]);
+  const p2 = toNatural(points[1]);
+
+  const markerSizeMm = parseFloat(document.getElementById('markerSize').value);
+  if (!markerSizeMm || markerSizeMm <= 0) {
+    setStatus('Укажите корректный размер метки в мм', true);
+    return;
+  }
+
+  setStatus('Измеряю…');
+  document.getElementById('btnMeasure').disabled = true;
+
+  photoCanvas.toBlob(async (blob) => {
+    try {
+      const fd = new FormData();
+      fd.append('image', blob, 'photo.jpg');
+      fd.append('marker_size_mm', markerSizeMm);
+      fd.append('points', JSON.stringify([p1, p2]));
+
+      const res = await fetch(`${API_BASE}/api/measure`, { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.detail || 'Ошибка измерения', true);
+        document.getElementById('btnMeasure').disabled = false;
+        return;
+      }
+
+      document.getElementById('valDiameter').textContent = data.diameter_mm.toFixed(2);
+      document.getElementById('valRadius').textContent = data.radius_mm.toFixed(2);
+      document.getElementById('valError').textContent = data.error_mm.toFixed(2);
+      readout.classList.add('show');
+
+      const warnEl = document.getElementById('readoutWarning');
+      if (data.warning) {
+        warnEl.textContent = '⚠ ' + data.warning;
+        warnEl.classList.add('show');
+      } else {
+        warnEl.classList.remove('show');
+      }
+
+      setStatus('Готово');
+      stepLabel.textContent = '3 / 3 · результат';
+    } catch (e) {
+      setStatus('Ошибка сети: ' + e.message, true);
+    }
+    document.getElementById('btnMeasure').disabled = false;
+  }, 'image/jpeg', 0.92);
+});
+
+window.addEventListener('resize', redrawOverlay);
+startCamera();
+</script>
+</body>
+</html>
